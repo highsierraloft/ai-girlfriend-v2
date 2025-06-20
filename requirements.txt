@@ -1,0 +1,39 @@
+# Core Bot Framework
+python-telegram-bot[webhooks]==21.9
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Database & ORM
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.36
+
+# Redis for caching and rate limiting
+redis[hiredis]==5.2.0
+
+# HTTP client for Hugging Face API
+httpx==0.28.1
+aiohttp==3.11.10
+
+# Configuration management
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Scheduling
+apscheduler==3.10.4
+
+# Token counting for prompt management (Phase 3)
+transformers==4.45.0
+tokenizers==0.20.0
+tenacity==9.0.0
+
+# Development and testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-mock==3.14.0
+
+# Logging and monitoring
+structlog==23.2.0
+
+# Utilities
+python-dotenv==1.0.1
+pytz==2024.2 
