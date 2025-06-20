@@ -1,3 +1,32 @@
+**2025-06-20 19:05:00 - User Identification in Message Logging**
+
+### Enhancement: Message Monitoring System
+Added `user_id` and `username` fields to `message_log` table for comprehensive user activity monitoring.
+
+### Database Changes
+- Added `user_id BIGINT` and `username VARCHAR(255)` columns to `message_log` table
+- Created indexes for performance: `idx_message_log_user_id`, `idx_message_log_username`
+- Updated existing 212 records with user data from `user_profile` table
+
+### Code Updates
+- **MessageLog model**: Added `user_id` and `username` fields with proper typing
+- **MessageService**: Updated `save_user_message()` and `save_assistant_message()` methods to accept user identification
+- **BotHandlers**: Modified message saving to pass `update.effective_user.id` and `update.effective_user.username`
+- **Created monitoring functions**: `recent_messages_by_user()` for user-specific message retrieval
+
+### Monitoring Capabilities
+- Track messages by specific username: `SELECT * FROM recent_messages_by_user('username')`
+- User activity analysis: message counts, token usage, last activity timestamps
+- Content analysis: message length averages, conversation threads
+- Full user identification in all message logs for moderation and analytics
+
+### Benefits
+- Complete user traceability for all messages
+- Enhanced moderation capabilities
+- User behavior analytics
+- Conversation thread analysis
+- Performance optimized with proper indexing
+
 # AI Girlfriend Bot - Development Context
 
 ## Project Status: Phase 2 Complete ✅
@@ -198,6 +227,7 @@ UPDATE user_profile SET last_reset_at = NOW() WHERE chat_id = 908729282;
 **2025-01-17 01:00:** Phase 2 complete - fixed Docker build issues (torch deps), resolved port conflicts (5433/6380), fixed async test fixtures, 9/16 core tests passing, all business logic working perfectly. Ready for Phase 3 AI integration.
 **2025-06-20 01:37:** FINAL FIX - Bot startup issues completely resolved! Replaced Application.idle() with signal handlers, fixed event loop management. Bot now successfully initializes all components (Database ✅, Redis ✅, Handlers ✅) and is production-ready with real Telegram token. Phase 2 FULLY COMPLETE! 🎉
 **2025-06-20 02:03:** PHASE 3 COMPLETE! 🚀 AI Integration fully implemented and working! Added comprehensive AI service with Spice8B/HuggingFace integration, real tokenizer with graceful fallback, ChatML prompts, retry logic, rate limiting, Alice personality, context management, and production-ready error handling. Bot successfully initializes all AI components and is ready for real Spice8B model deployment!
+**2025-06-20 18:39:** PROMO CODE SYSTEM COMPLETE! 🎁 Fixed {{user}} personalization bug (Unknown→NULL), implemented complete promotional code system with database tables, PromoCodeService, UI workflow, and SEXY2025 promo (50 loans). Enhanced /topup menu with promo section, added state management for code input, and comprehensive error handling. All 21/21 tests passing, production-ready!
 **2025-01-17 18:30:** Fixed UserService tests - resolved NoneType error in add_loans method by initializing total_loans_purchased to 0, converted all tests to work with static methods, fixed datetime.utcnow deprecation warning. All 5/5 UserService tests now passing! ✅
 **2025-01-17 18:45:** DATABASE SCHEMA MIGRATION COMPLETE! ✅ Fixed "column user_profile.user_id does not exist" error by applying comprehensive database migration: added all missing Telegram user fields (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, first_interaction_at, last_interaction_at, total_messages_sent, total_loans_purchased), created preference_history and user_stats tables with proper indexes and foreign keys. Bot now starts successfully, all 16/16 tests passing! 🚀
 **2025-01-17 19:00:** HANDLERS FULLY FIXED! ✅ Resolved "UserService() takes no arguments" error by converting all bot handlers to use static UserService methods instead of creating instances. Updated handle_message, topup_command, reset_command, preferences_callback, and handle_preferences_edit methods. Bot now processes user messages without errors, all functionality working! 🎉

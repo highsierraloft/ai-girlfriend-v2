@@ -29,12 +29,14 @@ class MessageService:
         # from transformers import AutoTokenizer
         # self.tokenizer = AutoTokenizer.from_pretrained("tokenizer_name")
     
-    async def save_user_message(self, chat_id: int, content: str) -> MessageLog:
+    async def save_user_message(self, chat_id: int, content: str, user_id: Optional[int] = None, username: Optional[str] = None) -> MessageLog:
         """Save user message to database."""
         message = MessageLog.create_user_message(
             chat_id=chat_id,
             content=content,
-            tokens_used=self._count_tokens(content)
+            tokens_used=self._count_tokens(content),
+            user_id=user_id,
+            username=username
         )
         
         self.db.add(message)
@@ -44,12 +46,14 @@ class MessageService:
         logger.info(f"Saved user message for chat {chat_id}, tokens: {message.tokens_used}")
         return message
     
-    async def save_assistant_message(self, chat_id: int, content: str) -> MessageLog:
+    async def save_assistant_message(self, chat_id: int, content: str, user_id: Optional[int] = None, username: Optional[str] = None) -> MessageLog:
         """Save assistant message to database."""
         message = MessageLog.create_assistant_message(
             chat_id=chat_id,
             content=content,
-            tokens_used=self._count_tokens(content)
+            tokens_used=self._count_tokens(content),
+            user_id=user_id,
+            username=username
         )
         
         self.db.add(message)

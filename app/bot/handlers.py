@@ -10,6 +10,7 @@ from app.database.connection import get_database
 from app.services.user_service import UserService
 from app.services.message_service import MessageService
 from app.services.rate_limiter import rate_limiter
+from app.services.promo_service import PromoCodeService
 from app.config.settings import settings
 import re
 
@@ -140,12 +141,13 @@ class BotHandlers:
             await update.message.reply_text(SYSTEM_MESSAGES["age_verification_required"])
             return
             
-        # Placeholder payment buttons
+        # Payment and promo buttons
         keyboard = [
             [InlineKeyboardButton(INTERFACE_BUTTONS["topup_uah"], callback_data="topup_uah")],
             [InlineKeyboardButton(INTERFACE_BUTTONS["topup_rub"], callback_data="topup_rub")],
             [InlineKeyboardButton(INTERFACE_BUTTONS["topup_try"], callback_data="topup_try")],
-            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_crypto"], callback_data="topup_crypto")]
+            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_crypto"], callback_data="topup_crypto")],
+            [InlineKeyboardButton(INTERFACE_BUTTONS["promo_codes"], callback_data="show_promo_section")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -287,6 +289,12 @@ class BotHandlers:
             if handled:
                 return
         
+        # Check if we're awaiting a promo code
+        if context.user_data.get("awaiting_promo_code", False):
+            handled = await BotHandlers.handle_promo_code(update, context)
+            if handled:
+                return
+        
         # Rate limiting check
         if await rate_limiter.is_rate_limited(chat_id):
             remaining = await rate_limiter.get_remaining_time(chat_id)
@@ -319,8 +327,13 @@ class BotHandlers:
         async for db in get_database():
             message_service = MessageService(db)
             
-            # Save user message
-            await message_service.save_user_message(chat_id, user_message)
+            # Save user message with user identification
+            await message_service.save_user_message(
+                chat_id=chat_id, 
+                content=user_message,
+                user_id=update.effective_user.id,
+                username=update.effective_user.username
+            )
             
             # Increment user's total message count
             await UserService.increment_user_message_count(chat_id)
@@ -338,8 +351,13 @@ class BotHandlers:
                 # Personalize the response (replace {{user}} with actual name)
                 personalized_response = personalize_message(ai_response, user_profile)
                 
-                # Save AI response
-                await message_service.save_assistant_message(chat_id, personalized_response)
+                # Save AI response with user identification
+                await message_service.save_assistant_message(
+                    chat_id=chat_id, 
+                    content=personalized_response,
+                    user_id=update.effective_user.id,
+                    username=update.effective_user.username
+                )
                 
                 # Format actions for Telegram (convert *action* to bold+italic)
                 formatted_response = format_actions_for_telegram(personalized_response)
@@ -475,6 +493,83 @@ class BotHandlers:
         logger.info(f"Updated preferences for user {chat_id}")
         return True  # Message was handled
 
+    @staticmethod
+    async def promo_section_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle promo section display."""
+        query = update.callback_query
+        await query.answer()
+        
+        # Show promo section with back button
+        keyboard = [[InlineKeyboardButton(INTERFACE_BUTTONS["back_to_dialog"], callback_data="back_to_dialog")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            INTERFACE_MESSAGES["promo_section"],
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        
+        # Set state for promo code input
+        context.user_data["awaiting_promo_code"] = True
+    
+    @staticmethod
+    async def back_to_dialog_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle back to dialog button."""
+        query = update.callback_query
+        await query.answer()
+        
+        # Clear any pending states
+        context.user_data.pop("awaiting_promo_code", None)
+        
+        await query.edit_message_text(
+            INTERFACE_MESSAGES["promo_back_to_dialog"],
+            parse_mode="Markdown"
+        )
+    
+    @staticmethod
+    async def handle_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle promo code input."""
+        chat_id = update.effective_chat.id
+        promo_code = update.message.text.strip()
+        
+        # Check if we're awaiting a promo code
+        if not context.user_data.get("awaiting_promo_code", False):
+            return False  # Not handling this message
+        
+        # Clear the state
+        context.user_data.pop("awaiting_promo_code", None)
+        
+        try:
+            # Attempt to use the promo code
+            success, message, loans_received = await PromoCodeService.use_promo_code(chat_id, promo_code)
+            
+            if success:
+                # Success message with updated balance
+                user = await UserService.get_user_by_chat_id(chat_id)
+                success_message = f"{message}\n\n💰 Ваш баланс: {user.loan_balance} кредитов"
+                
+                await update.message.reply_text(
+                    success_message,
+                    parse_mode="HTML"
+                )
+                logger.info(f"Promo code '{promo_code}' successfully used by chat_id={chat_id}")
+            else:
+                # Error message
+                await update.message.reply_text(
+                    message,
+                    parse_mode="HTML"
+                )
+                logger.info(f"Failed promo code attempt '{promo_code}' by chat_id={chat_id}: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error processing promo code '{promo_code}' for chat_id={chat_id}: {e}")
+            await update.message.reply_text(
+                "❌ Произошла ошибка при обработке промокода. Попробуйте позже.",
+                parse_mode="HTML"
+            )
+        
+        return True  # Message was handled
+
 
 def setup_handlers(application) -> None:
     """Set up all bot handlers."""
@@ -504,6 +599,14 @@ def setup_handlers(application) -> None:
     application.add_handler(CallbackQueryHandler(
         BotHandlers.preferences_callback,
         pattern="^(edit_preferences|view_full_preferences|clear_preferences|confirm_clear_preferences|back_to_profile)$"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        BotHandlers.promo_section_callback,
+        pattern="^show_promo_section$"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        BotHandlers.back_to_dialog_callback,
+        pattern="^back_to_dialog$"
     ))
     
     # Message handler for regular chat
