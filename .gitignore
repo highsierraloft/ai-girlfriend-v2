@@ -98,3 +98,129 @@ Scripts/
 
 # environment manager:
 .mise.toml
+
+# AI-Girlfriend Bot specific files
+# Environment files (contain secrets)
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+db_data/
+
+# Docker volumes and data
+postgres_data/
+redis_data/
+docker-data/
+
+# Logs
+logs/
+*.log
+bot.log
+app.log
+error.log
+debug.log
+
+# AI model cache and temporary files
+models/
+model_cache/
+.cache/
+temp/
+tmp/
+*.tmp
+
+# Test files and temporary test data (only temporary ones)
+test_data/
+test_results/
+coverage_reports/
+test_*.py.bak
+*_test.py.bak
+
+# IDE and editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
+*~
+
+# Runtime files
+*.pid
+*.sock
+
+# SSL certificates and keys
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+certs/
+certificates/
+
+# Monitoring and profiling
+*.prof
+*.profile
+monitoring/
+
+# Local development overrides
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Package manager files
+package-lock.json
+yarn.lock
+Pipfile.lock
+
+# Jupyter notebooks (if any)
+.ipynb_checkpoints/
+*.ipynb
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Temporary files from various tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.black_cache/
+
+# Bot-specific temporary files
+*.session
+*.session-journal
+webhook_cert.pem
+webhook_pkey.pem
+
+# Development and debugging files
+debug_*.json
+debug_*.txt
+profile_*.json
+memory_*.dump
+
+# Local configuration overrides
+local_settings.py
+local_config.py
