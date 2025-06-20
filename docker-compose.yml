@@ -47,6 +47,7 @@ services:
       - HF_MAX_RPS=5
     volumes:
       - ./app:/app/app  # Mount to correct location for development
+      - ./tests:/app/tests  # Mount tests directory
     ports:
       - "8000:8000"
     command: python -m bot

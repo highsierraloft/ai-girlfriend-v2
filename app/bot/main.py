@@ -2,6 +2,8 @@
 
 import logging
 from telegram.ext import Application
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from app.config.settings import settings
 from app.database.connection import init_database, close_database
@@ -9,6 +11,22 @@ from app.services.rate_limiter import rate_limiter
 from .handlers import setup_handlers
 
 logger = logging.getLogger(__name__)
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a fallback message to user if possible."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    
+    # Try to send a fallback message to the user if it's a message update
+    if isinstance(update, Update) and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Oops! 😔 Something went wrong. Please try again in a moment! 💕",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send error message to user: {e}")
 
 
 async def setup_application_components(application: Application) -> None:
@@ -34,6 +52,10 @@ async def setup_application_components(application: Application) -> None:
     
     # Set up handlers
     setup_handlers(application)
+    
+    # Add error handler
+    application.add_error_handler(error_handler)
+    logger.info("Error handler registered")
     
     # Store cleanup function in application context for manual cleanup
     async def cleanup():

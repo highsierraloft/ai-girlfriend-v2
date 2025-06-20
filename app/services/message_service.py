@@ -227,8 +227,7 @@ class MessageService:
         
         try:
             # Get user profile for preferences
-            user_service = UserService(self.db)
-            user_profile = await user_service.get_user(chat_id)
+            user_profile = await UserService.get_user_by_chat_id(chat_id)
             user_preferences = user_profile.preference if user_profile else None
             
             # Get recent chat history

@@ -567,13 +567,21 @@ class AIService:
                     
             except httpx.TimeoutException as e:
                 logger.error(f"⏰ API request timed out after {settings.hf_timeout}s: {e}")
-                raise
+                raise ModelUnavailableError("AI service timeout - please try again")
             except httpx.RequestError as e:
                 logger.error(f"🌐 Network error during API request: {e}")
-                raise
+                raise AIServiceError(f"Network error: {str(e)}")
+            except httpx.HTTPStatusError as e:
+                logger.error(f"🔥 HTTP error {e.response.status_code}: {e.response.text}")
+                if e.response.status_code == 429:
+                    raise RateLimitExceededError("API rate limit exceeded")
+                elif e.response.status_code == 503:
+                    raise ModelUnavailableError("Model temporarily unavailable")
+                else:
+                    raise AIServiceError(f"HTTP error {e.response.status_code}: {e.response.text}")
             except Exception as e:
                 logger.error(f"💥 Unexpected error during API request: {e}")
-                raise
+                raise AIServiceError(f"Unexpected error: {str(e)}")
     
     async def generate_response(
         self,
