@@ -372,4 +372,132 @@ class PromoCodeUsage(Base):
     
     __table_args__ = (
         UniqueConstraint('chat_id', 'promo_code_id', name='unique_user_promo_usage'),
-    ) 
+    )
+
+
+class Payment(Base):
+    """Payment model for tracking user payments via Lava.top."""
+    
+    __tablename__ = "payments"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("user_profile.chat_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    
+    # Payment details
+    amount_eur: Mapped[float] = mapped_column(nullable=False)  # Amount in EUR
+    amount_usd: Mapped[float] = mapped_column(nullable=False)  # Amount in USD
+    amount_rub: Mapped[float] = mapped_column(nullable=False)  # Amount in RUB
+    tokens_to_receive: Mapped[int] = mapped_column(Integer, nullable=False)  # Tokens user will get
+    
+    # Lava.top fields
+    lava_invoice_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)  # Lava invoice ID
+    lava_order_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)  # Our order ID
+    lava_payment_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Payment URL
+    
+    # Status tracking
+    status: Mapped[str] = mapped_column(String(50), default="pending", index=True)  # pending, paid, failed, expired
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Bot name for multi-bot support
+    bot_name: Mapped[str] = mapped_column(String(100), nullable=False, default="ai-girlfriend")
+    
+    # Additional metadata
+    payment_method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # card, sbp, etc
+    user_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)  # User IP for fraud detection
+    webhook_received: Mapped[bool] = mapped_column(Boolean, default=False)  # Webhook confirmation
+    
+    # Relationship
+    user: Mapped["UserProfile"] = relationship("UserProfile")
+    transactions: Mapped[List["PaymentTransaction"]] = relationship(
+        "PaymentTransaction",
+        back_populates="payment",
+        cascade="all, delete-orphan"
+    )
+    
+    def __repr__(self) -> str:
+        return f"<Payment(order_id={self.lava_order_id}, amount_eur={self.amount_eur}, status={self.status})>"
+    
+    def is_pending(self) -> bool:
+        """Check if payment is still pending."""
+        return self.status == "pending"
+    
+    def is_paid(self) -> bool:
+        """Check if payment is completed."""
+        return self.status == "paid"
+    
+    def mark_as_paid(self) -> None:
+        """Mark payment as paid."""
+        self.status = "paid"
+        self.paid_at = func.now()
+        self.webhook_received = True
+    
+    def mark_as_failed(self) -> None:
+        """Mark payment as failed."""
+        self.status = "failed"
+    
+    def mark_as_expired(self) -> None:
+        """Mark payment as expired."""
+        self.status = "expired"
+
+
+class PaymentTransaction(Base):
+    """Payment transaction log for detailed tracking."""
+    
+    __tablename__ = "payment_transactions"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    payment_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("payments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    
+    # Transaction details
+    transaction_type: Mapped[str] = mapped_column(String(50), nullable=False)  # created, webhook, status_check, etc
+    status: Mapped[str] = mapped_column(String(50), nullable=False)  # success, error, pending
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Status message or error
+    
+    # Lava.top response data
+    lava_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Full JSON response
+    http_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # HTTP status code
+    
+    # Timing
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationship
+    payment: Mapped["Payment"] = relationship("Payment", back_populates="transactions")
+    
+    def __repr__(self) -> str:
+        return f"<PaymentTransaction(payment_id={self.payment_id}, type={self.transaction_type}, status={self.status})>"
+    
+    @classmethod
+    def create_transaction(
+        cls,
+        payment_id: int,
+        transaction_type: str,
+        status: str,
+        message: Optional[str] = None,
+        lava_response: Optional[str] = None,
+        http_status: Optional[int] = None
+    ) -> "PaymentTransaction":
+        """Create a new payment transaction record."""
+        return cls(
+            payment_id=payment_id,
+            transaction_type=transaction_type,
+            status=status,
+            message=message,
+            lava_response=lava_response,
+            http_status=http_status
+        ) 

@@ -61,6 +61,24 @@ class Settings(BaseSettings):
     # Security
     webhook_secret: Optional[str] = Field(default=None, description="Webhook secret token")
     
+    # Lava.top Payment Configuration
+    lava_api_key: Optional[str] = Field(default=None, description="Lava.top API key")
+    lava_shop_id: Optional[str] = Field(default=None, description="Lava.top shop ID")
+    lava_api_url: str = Field(default="https://gate.lava.top", description="Lava.top API base URL")
+    lava_webhook_secret: Optional[str] = Field(default=None, description="Lava.top webhook secret for signature verification")
+    lava_webhook_url: Optional[str] = Field(default=None, description="Webhook URL for payment notifications")
+    bot_name: str = Field(default="ai-girlfriend", description="Bot name for payment tracking")
+    
+    # Payment Packages Configuration
+    payment_packages: dict = Field(
+        default={
+            "100": {"tokens": 100, "eur": 5.00, "usd": 6.00, "rub": 500.00},
+            "200": {"tokens": 200, "eur": 8.00, "usd": 9.00, "rub": 800.00},
+            "300": {"tokens": 300, "eur": 12.00, "usd": 13.00, "rub": 1000.00}
+        },
+        description="Available payment packages with pricing"
+    )
+    
     class Config:
         """Pydantic configuration."""
         env_file = ".env"
@@ -69,4 +87,8 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings() 
+settings = Settings()
+
+def get_settings() -> Settings:
+    """Get the global settings instance."""
+    return settings 

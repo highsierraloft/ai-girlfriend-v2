@@ -11,6 +11,7 @@ from app.services.user_service import UserService
 from app.services.message_service import MessageService
 from app.services.rate_limiter import rate_limiter
 from app.services.promo_service import PromoCodeService
+from app.services.scheduler_service import SchedulerService
 from app.config.settings import settings
 import re
 
@@ -132,43 +133,156 @@ class BotHandlers:
     
     @staticmethod
     async def topup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /topup command - show payment options (placeholder)."""
-        chat_id = update.effective_chat.id
+        """Handle topup command - show payment packages."""
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+            chat_id = query.message.chat_id
+        else:
+            chat_id = update.effective_chat.id
         
-        # Age verification check
-        user = await UserService.get_user_by_chat_id(chat_id)
-        if not user or not user.age_verified:
-            await update.message.reply_text(SYSTEM_MESSAGES["age_verification_required"])
-            return
-            
-        # Payment and promo buttons
+        # Create keyboard with payment packages
         keyboard = [
-            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_uah"], callback_data="topup_uah")],
-            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_rub"], callback_data="topup_rub")],
-            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_try"], callback_data="topup_try")],
-            [InlineKeyboardButton(INTERFACE_BUTTONS["topup_crypto"], callback_data="topup_crypto")],
-            [InlineKeyboardButton(INTERFACE_BUTTONS["promo_codes"], callback_data="show_promo_section")]
+            [InlineKeyboardButton(INTERFACE_BUTTONS["package_100"], callback_data="package_100")],
+            [InlineKeyboardButton(INTERFACE_BUTTONS["package_200"], callback_data="package_200")],
+            [InlineKeyboardButton(INTERFACE_BUTTONS["package_300"], callback_data="package_300")],
+            [InlineKeyboardButton(INTERFACE_BUTTONS["promo_codes"], callback_data="promo_section")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            INTERFACE_MESSAGES["topup_options"],
+        message_text = INTERFACE_MESSAGES["topup_options"]
+        
+        if update.callback_query:
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+    
+    @staticmethod
+    async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle payment package selection - show currency selection."""
+        query = update.callback_query
+        await query.answer()
+        
+        chat_id = query.message.chat_id
+        package_id = query.data.replace("package_", "")  # Extract package ID (100, 200, 300)
+        
+        # Store selected package in context for next step
+        context.user_data["selected_package"] = package_id
+        
+        # Get package info
+        package = settings.payment_packages[package_id]
+        
+        # Create currency selection keyboard
+        keyboard = [
+            [InlineKeyboardButton(f"🇷🇺 {package['rub']} RUB", callback_data=f"currency_{package_id}_RUB")],
+            [InlineKeyboardButton(f"🇪🇺 {package['eur']} EUR", callback_data=f"currency_{package_id}_EUR")],
+            [InlineKeyboardButton(f"🇺🇸 {package['usd']} USD", callback_data=f"currency_{package_id}_USD")],
+            [InlineKeyboardButton(INTERFACE_BUTTONS["back_to_topup"], callback_data="back_to_topup")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        message_text = f"💰 **Пакет: {package['tokens']} токенов**\n\n" \
+                      f"Выберите валюту для оплаты:\n\n" \
+                      f"🇷🇺 **{package['rub']} RUB**\n" \
+                      f"🇪🇺 **{package['eur']} EUR**\n" \
+                      f"🇺🇸 **{package['usd']} USD**"
+        
+        await query.edit_message_text(
+            message_text,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
     
     @staticmethod
-    async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle payment method selection (placeholder)."""
+    async def currency_selection_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle currency selection and create payment."""
         query = update.callback_query
         await query.answer()
         
-        method = PAYMENT_METHODS.get(query.data, SYSTEM_MESSAGES["unknown_payment_method"])
+        chat_id = query.message.chat_id
         
-        await query.edit_message_text(
-            INTERFACE_MESSAGES["payment_coming_soon"].format(method=method),
-            parse_mode="Markdown"
-        )
+        # Parse callback data: currency_100_RUB -> package_id=100, currency=RUB
+        try:
+            _, package_id, currency = query.data.split("_")
+        except ValueError:
+            await query.edit_message_text("❌ Ошибка обработки выбора валюты")
+            return
+        
+        try:
+            # Import and initialize payment service
+            from app.services.payment_service import LavaPaymentService
+            payment_service = LavaPaymentService()
+            
+            # Create payment invoice with selected currency
+            success, message, payment = await payment_service.create_invoice_with_currency(
+                chat_id=chat_id,
+                package_id=package_id,
+                currency=currency,
+                user_ip=None  # TODO: Extract user IP if needed
+            )
+            
+            if success and payment:
+                # Show payment details with payment button
+                package = settings.payment_packages[package_id]
+                amount = package[currency.lower()]
+                
+                payment_text = f"💳 **Счёт создан успешно!**\n\n" \
+                              f"📦 **Пакет:** {package['tokens']} токенов\n" \
+                              f"💰 **Сумма:** {amount} {currency}\n\n" \
+                              f"Нажмите кнопку ниже для оплаты:"
+                
+                # Create payment button
+                keyboard = [
+                    [InlineKeyboardButton("💳 Перейти к оплате", url=payment.lava_payment_url)],
+                    [InlineKeyboardButton(INTERFACE_BUTTONS["back_to_topup"], callback_data="back_to_topup")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    payment_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                
+                logger.info(f"Payment created for chat_id={chat_id}, package={package_id}, currency={currency}, amount={amount}")
+            else:
+                # Show error message
+                error_text = f"❌ **Ошибка создания платежа**\n\n{message}"
+                keyboard = [[InlineKeyboardButton(INTERFACE_BUTTONS["back_to_topup"], callback_data="back_to_topup")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(
+                    error_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                
+                logger.error(f"Payment creation failed for chat_id={chat_id}: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error in currency selection callback: {e}")
+            error_text = "❌ **Внутренняя ошибка**\n\nПопробуйте позже или обратитесь в поддержку."
+            keyboard = [[InlineKeyboardButton(INTERFACE_BUTTONS["back_to_topup"], callback_data="back_to_topup")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                error_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+    
+    @staticmethod
+    async def back_to_topup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle back to topup callback."""
+        await BotHandlers.topup_command(update, context)
     
     @staticmethod
     async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -255,6 +369,54 @@ class BotHandlers:
             
         except Exception as e:
             await update.message.reply_text(SYSTEM_MESSAGES["health_check_failed"].format(error=str(e)))
+    
+    @staticmethod
+    async def admin_replenish_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Admin command to manually trigger daily loan replenishment."""
+        chat_id = update.effective_chat.id
+        
+        # Simple admin check - you can implement proper admin verification later
+        admin_chat_ids = [908729282]  # Add your admin chat IDs here
+        
+        if chat_id not in admin_chat_ids:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+        
+        try:
+            await update.message.reply_text("🔄 Starting manual loan replenishment...")
+            
+            # Get stats before
+            stats_before = await SchedulerService.get_users_loan_stats()
+            
+            # Run replenishment
+            replenishment_stats = await SchedulerService.replenish_daily_loans()
+            
+            # Get stats after
+            stats_after = await SchedulerService.get_users_loan_stats()
+            
+            # Format response
+            response = (
+                f"✅ **Manual Loan Replenishment Complete**\n\n"
+                f"**Results:**\n"
+                f"• Users checked: {replenishment_stats['total_users_checked']}\n"
+                f"• Users replenished: {replenishment_stats['users_replenished']}\n"
+                f"• Total loans added: {replenishment_stats['loans_added']}\n"
+                f"• Errors: {replenishment_stats['errors']}\n\n"
+                f"**Before/After Stats:**\n"
+                f"• Zero loans: {stats_before['zero_loans']} → {stats_after['zero_loans']}\n"
+                f"• Low loans (1-9): {stats_before['low_loans']} → {stats_after['low_loans']}\n"
+                f"• Medium loans (10-49): {stats_before['medium_loans']} → {stats_after['medium_loans']}\n"
+                f"• High loans (50+): {stats_before['high_loans']} → {stats_after['high_loans']}\n"
+            )
+            
+            await update.message.reply_text(response, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error(f"Admin replenish command failed: {e}")
+            await update.message.reply_text(
+                f"❌ Replenishment failed: {str(e)}",
+                parse_mode="Markdown"
+            )
     
     @staticmethod
     async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -582,6 +744,7 @@ def setup_handlers(application) -> None:
     application.add_handler(CommandHandler("about", BotHandlers.about_command))
     application.add_handler(CommandHandler("help", BotHandlers.about_command))  # Alias
     application.add_handler(CommandHandler("health", BotHandlers.health_command))  # Debug only
+    application.add_handler(CommandHandler("admin_replenish", BotHandlers.admin_replenish_command))  # Admin only
     
     # Callback query handlers
     application.add_handler(CallbackQueryHandler(
@@ -590,11 +753,11 @@ def setup_handlers(application) -> None:
     ))
     application.add_handler(CallbackQueryHandler(
         BotHandlers.payment_callback,
-        pattern="^topup_"
+        pattern="^package_"
     ))
     application.add_handler(CallbackQueryHandler(
-        BotHandlers.topup_command,
-        pattern="^show_topup$"
+        BotHandlers.currency_selection_callback,
+        pattern="^currency_"
     ))
     application.add_handler(CallbackQueryHandler(
         BotHandlers.preferences_callback,
@@ -602,11 +765,15 @@ def setup_handlers(application) -> None:
     ))
     application.add_handler(CallbackQueryHandler(
         BotHandlers.promo_section_callback,
-        pattern="^show_promo_section$"
+        pattern="^promo_section$"
     ))
     application.add_handler(CallbackQueryHandler(
         BotHandlers.back_to_dialog_callback,
         pattern="^back_to_dialog$"
+    ))
+    application.add_handler(CallbackQueryHandler(
+        BotHandlers.back_to_topup_callback,
+        pattern="^back_to_topup$"
     ))
     
     # Message handler for regular chat

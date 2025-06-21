@@ -1,6 +1,7 @@
 """Main bot application setup and initialization."""
 
 import logging
+from datetime import time
 from telegram.ext import Application
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -8,6 +9,7 @@ from telegram.ext import ContextTypes
 from app.config.settings import settings
 from app.database.connection import init_database, close_database
 from app.services.rate_limiter import rate_limiter
+from app.services.scheduler_service import SchedulerService
 from .handlers import setup_handlers
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,52 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             )
         except Exception as e:
             logger.error(f"Failed to send error message to user: {e}")
+
+
+async def daily_loan_replenishment_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Job function for daily loan replenishment."""
+    logger.info("Running daily loan replenishment job")
+    try:
+        stats = await SchedulerService.replenish_daily_loans()
+        logger.info(f"Daily loan replenishment completed: {stats}")
+    except Exception as e:
+        logger.error(f"Daily loan replenishment job failed: {e}")
+
+
+def setup_scheduler(application: Application) -> None:
+    """Setup daily scheduled tasks."""
+    logger.info("Setting up scheduler jobs...")
+    
+    # Schedule daily loan replenishment at 22:00 Europe/Kyiv
+    # Convert timezone to time object
+    replenishment_time = time(hour=22, minute=0, second=0)  # 22:00
+    
+    # Add daily job for loan replenishment
+    application.job_queue.run_daily(
+        daily_loan_replenishment_job,
+        time=replenishment_time,
+        name="daily_loan_replenishment"
+    )
+    
+    logger.info(f"Scheduled daily loan replenishment at {replenishment_time} {settings.schedule_timezone}")
+    
+    # Log current loan statistics on startup
+    async def log_initial_stats():
+        try:
+            stats = await SchedulerService.get_users_loan_stats()
+            logger.info(f"Initial loan statistics: {stats}")
+        except Exception as e:
+            logger.error(f"Failed to get initial loan statistics: {e}")
+    
+    # Run initial stats in a few seconds after startup
+    async def scheduler_init_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.info("Scheduler initialized successfully")
+    
+    application.job_queue.run_once(
+        scheduler_init_job,
+        when=1,
+        name="scheduler_init"
+    )
 
 
 async def setup_application_components(application: Application) -> None:
@@ -52,6 +100,10 @@ async def setup_application_components(application: Application) -> None:
     
     # Set up handlers
     setup_handlers(application)
+    
+    # Set up scheduler
+    setup_scheduler(application)
+    logger.info("Scheduler setup complete")
     
     # Add error handler
     application.add_error_handler(error_handler)
